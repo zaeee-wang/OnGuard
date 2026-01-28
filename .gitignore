@@ -64,3 +64,15 @@ obj/
 # Test files
 test.kt
 test.jar
+
+# LLM Model files (too large for Git)
+*.bin
+*.tflite
+*.task
+app/src/main/assets/models/*.bin
+app/src/main/assets/models/*.tflite
+app/src/main/assets/models/*.task
+
+# API Keys (NEVER COMMIT)
+kaggle.json
+.kaggle/
