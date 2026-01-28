@@ -113,6 +113,9 @@ dependencies {
     implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
     implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
 
+    // MediaPipe LLM Inference API (Gemma 지원)
+    implementation("com.google.mediapipe:tasks-genai:0.10.14")
+
     // Gson
     implementation("com.google.code.gson:gson:2.10.1")
 
