@@ -23,7 +23,7 @@ object DatabaseModule {
         return Room.databaseBuilder(
             context,
             AppDatabase::class.java,
-            "scamguard_database"
+            "dealguard_database"
         )
             .fallbackToDestructiveMigration()
             .build()

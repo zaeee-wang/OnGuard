@@ -40,8 +40,7 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
 
         // 거래 플랫폼
         "kr.co.daangn",                             // 당근마켓
-        "com.nhn.android.search",                   // 네이버 (채팅)
-        "com.kakao.talk",                           // 카카오톡 (중고거래)
+        "com.nhn.android.search"                    // 네이버 (채팅)
 
         // 추가 메신저
         "jp.naver.line.android",                    // 라인
