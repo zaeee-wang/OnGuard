@@ -55,11 +55,24 @@ class KeywordMatcherTest {
     }
 
     @Test
-    fun `전화번호 패턴 감지`() {
+    fun `전화번호 패턴만 있으면 스캠 아님 - False Positive 방지`() {
+        // 격리된 전화번호 패턴은 오탐 방지를 위해 스캠 판정 안함
+        // (키보드 UI, 자동완성 등에서 자주 오탐지됨)
         val text = "010-1234-5678로 연락주세요"
         val result = keywordMatcher.analyze(text)
 
+        // 새로운 동작: 단일 패턴 + 키워드 없음 = 패턴 신뢰도 미적용
+        assertFalse("격리된 전화번호만으로는 스캠 아님", result.isScam)
+    }
+
+    @Test
+    fun `전화번호 패턴 + 키워드 조합시 감지`() {
+        // 전화번호 패턴 + 키워드가 함께 있으면 감지
+        val text = "급전 필요합니다 010-1234-5678로 연락주세요"
+        val result = keywordMatcher.analyze(text)
+
         assertTrue("전화번호 패턴 감지", result.reasons.any { it.contains("전화") || it.contains("번호") })
+        assertTrue("급전 키워드 감지", result.detectedKeywords.contains("급전"))
     }
 
     @Test
@@ -137,5 +150,45 @@ class KeywordMatcherTest {
 
         assertFalse("빈 문자열은 스캠 아님", result.isScam)
         assertEquals(0f, result.confidence, 0.01f)
+    }
+
+    // ========== False Positive 방지 테스트 ==========
+
+    @Test
+    fun `키보드 숫자열은 스캠 아님`() {
+        // 키보드 UI에서 추출된 숫자열 패턴 테스트
+        val text = "0 1 2 3 4 5 6 7 8 9"
+        val result = keywordMatcher.analyze(text)
+
+        assertFalse("키보드 숫자열은 스캠 아님", result.isScam)
+        assertTrue("낮은 신뢰도", result.confidence < 0.3f)
+    }
+
+    @Test
+    fun `격리된 계좌번호 패턴은 스캠 아님`() {
+        // 계좌번호 패턴만 있고 키워드 없으면 오탐 방지
+        val text = "1234-5678-9012"
+        val result = keywordMatcher.analyze(text)
+
+        assertFalse("격리된 계좌번호만으로는 스캠 아님", result.isScam)
+    }
+
+    @Test
+    fun `격리된 연속 숫자는 스캠 아님`() {
+        // 연속된 10자리 이상 숫자만 있는 경우
+        val text = "01234567890"
+        val result = keywordMatcher.analyze(text)
+
+        assertFalse("격리된 연속 숫자만으로는 스캠 아님", result.isScam)
+    }
+
+    @Test
+    fun `여러 패턴 조합시 감지`() {
+        // 2개 이상 패턴이 있으면 키워드 없이도 감지
+        val text = "010-1234-5678 계좌번호 1234-5678-9012"
+        val result = keywordMatcher.analyze(text)
+
+        // 전화번호 패턴 + 계좌번호 패턴 = 2개 패턴
+        assertTrue("다중 패턴 감지", result.reasons.size >= 1)
     }
 }
