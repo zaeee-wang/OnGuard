@@ -4,6 +4,26 @@
 
 ---
 
+## [0.2.4] - 2026-01-31
+
+### Changed
+- **탐지 민감도 향상** (P1)
+
+#### ScamDetectionAccessibilityService.kt
+- `MIN_TEXT_LENGTH` 20 → 10으로 감소
+  - 노드 필터링이 키보드/UI를 이미 제외하므로 완화
+  - 짧은 스캠 메시지도 탐지: "입금해주세요"(6자), "OTP알려줘"(7자)
+- 개별 노드 텍스트 추출 기준 완화:
+  - node.text 최소 길이: 5자 → 3자 ("OTP" 등 짧은 키워드 추출)
+  - contentDescription 최소 길이: 10자 → 5자
+
+### Technical Details
+- 변경 이유: 정확도 중시 - 짧은 위험 키워드도 확실히 탐지
+- 오탐 방지: 노드 필터링(shouldSkipEntireSubtree)이 이미 적용됨
+- 주의: 단일 문자/숫자는 여전히 제외 (3자 미만)
+
+---
+
 ## [0.2.3] - 2026-01-31
 
 ### Added

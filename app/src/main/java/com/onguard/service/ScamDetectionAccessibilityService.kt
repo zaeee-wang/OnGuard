@@ -81,12 +81,12 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
         // - 200ms 초과: UX 반응성 저하
         private const val DEBOUNCE_DELAY_MS = 100L
 
-        // 최소 텍스트 길이: 20자 (증가됨)
-        // - 너무 짧은 텍스트는 스캠 판정 불가
-        // - "안녕하세요"(5자) 같은 일반 인사 필터링
-        // - 스캠 메시지는 보통 20자 이상
-        // - 키보드/UI 요소 텍스트 필터링 강화
-        private const val MIN_TEXT_LENGTH = 20
+        // 최소 텍스트 길이: 10자
+        // - 노드 필터링(shouldSkipEntireSubtree)이 키보드/UI 요소를 이미 제외
+        // - 짧은 스캠 메시지도 탐지 필요: "입금해주세요"(6자), "OTP알려줘"(7자)
+        // - 10자 미만은 의미 있는 분석 어려움 (단어 1-2개)
+        // - 주의: 개별 노드 텍스트는 5자 이상만 추출 (extractTextFromNode)
+        private const val MIN_TEXT_LENGTH = 10
 
         // 스캠 임계값: 0.5 (50%)
         // - 오탐(false positive) 최소화와 미탐(false negative) 균형점
@@ -203,17 +203,19 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
 
         // 2. 현재 노드 텍스트만 스킵 대상이 아니면 텍스트 추출
         if (!shouldSkipNodeTextOnly(node)) {
-            // 텍스트 추출 (최소 길이 5자 이상만 - 단일 글자/숫자 필터링)
+            // 텍스트 추출 (최소 길이 3자 이상)
+            // - "OTP"(3자), "급전"(2자+조사) 같은 짧은 키워드도 추출
+            // - 단일 문자/숫자 ("1", "가")는 제외
             node.text?.let { text ->
-                if (text.length >= 5) {
+                if (text.length >= 3) {
                     textBuilder.append(text).append(" ")
                 }
             }
 
             // contentDescription은 접근성 라벨이 아닌 경우만 포함
-            // (버튼 설명, 아이콘 라벨 등은 제외)
+            // - 5자 이상 + 라벨 패턴 제외
             node.contentDescription?.let { desc ->
-                if (desc.length >= 10 && !isAccessibilityLabel(desc)) {
+                if (desc.length >= 5 && !isAccessibilityLabel(desc)) {
                     textBuilder.append(desc).append(" ")
                 }
             }
