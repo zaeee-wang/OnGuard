@@ -76,23 +76,42 @@ class LLMScamDetector @Inject constructor(
         try {
             val modelFile = File(context.filesDir, MODEL_PATH)
 
-            // assets에서 모델 파일 확인
-            if (!modelFile.exists()) {
-                // assets에서 복사 시도
-                val assetPath = MODEL_PATH
-                try {
+            // assets에서 모델 파일 확인 및 복사
+            val assetPath = MODEL_PATH
+            try {
+                // 기존 파일이 있으면 삭제 (모델 변경 시 재복사 보장)
+                if (modelFile.exists()) {
+                    val fileSize = modelFile.length()
+                    Log.d(TAG, "Existing model file found: ${modelFile.absolutePath}, size: $fileSize bytes")
+                    // 파일 크기가 비정상적으로 작으면 삭제 후 재복사
+                    if (fileSize < 100_000_000L) { // 100MB 미만이면 손상된 것으로 간주
+                        Log.w(TAG, "Model file seems corrupted (too small), deleting and re-copying")
+                        modelFile.delete()
+                    }
+                }
+                
+                // assets에서 복사 (없거나 손상된 경우)
+                if (!modelFile.exists()) {
                     context.assets.open(assetPath).use { input ->
                         modelFile.parentFile?.mkdirs()
                         modelFile.outputStream().use { output ->
                             input.copyTo(output)
                         }
                     }
-                    Log.d(TAG, "Model copied from assets to: ${modelFile.absolutePath}")
-                } catch (e: Exception) {
-                    Log.w(TAG, "Model file not found in assets: $assetPath")
-                    Log.w(TAG, "LLM detection will be disabled. Please add Gemma model to assets/models/")
-                    return@withContext false
+                    val copiedSize = modelFile.length()
+                    Log.d(TAG, "Model copied from assets to: ${modelFile.absolutePath}, size: $copiedSize bytes")
+                    
+                    // 복사 후 크기 검증
+                    if (copiedSize < 100_000_000L) {
+                        Log.e(TAG, "Copied model file is too small, likely corrupted")
+                        modelFile.delete()
+                        return@withContext false
+                    }
                 }
+            } catch (e: Exception) {
+                Log.e(TAG, "Error copying model from assets: $assetPath", e)
+                Log.w(TAG, "LLM detection will be disabled. Please add Gemma model to assets/models/")
+                return@withContext false
             }
 
             val options = LlmInference.LlmInferenceOptions.builder()
