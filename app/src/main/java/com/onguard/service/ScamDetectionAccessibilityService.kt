@@ -154,6 +154,10 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
         // Debouncing: 이전 작업 취소
         debounceJob?.cancel()
 
+        // packageName을 코루틴 시작 전에 캡처
+        // AccessibilityEvent는 delay 동안 시스템에 의해 재활용될 수 있음
+        val sourcePackage = event.packageName?.toString() ?: return
+
         debounceJob = serviceScope.launch {
             delay(DEBOUNCE_DELAY_MS)
 
@@ -191,8 +195,8 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
 
                 Log.d(TAG, "Extracted text (${extractedText.length} chars): ${extractedText.take(100)}...")
 
-                // 스캠 분석
-                analyzeForScam(extractedText, event.packageName.toString())
+                // 스캠 분석 (미리 캡처한 sourcePackage 사용)
+                analyzeForScam(extractedText, sourcePackage)
 
             } catch (e: Exception) {
                 Log.e(TAG, "Error processing event", e)

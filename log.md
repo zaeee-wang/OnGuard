@@ -23,6 +23,10 @@
 - `rootInActiveWindow` null 재시도 로직 추가
   - 최대 3회 재시도 (50ms 간격)
   - 윈도우 로딩 지연으로 인한 이벤트 손실 방지
+- **NullPointerException 버그 수정** (P0 Critical)
+  - 증상: `event.packageName.toString()` 호출 시 NPE 발생
+  - 원인: `AccessibilityEvent`가 코루틴 delay 동안 시스템에 의해 재활용됨
+  - 수정: `processEvent()` 시작 시 `packageName`을 미리 캡처하여 사용
 
 #### OverlayService.kt
 - `Settings.canDrawOverlays()` 권한 체크 추가
