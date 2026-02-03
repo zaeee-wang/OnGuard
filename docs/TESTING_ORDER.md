@@ -22,7 +22,7 @@
 
 4. **(선택) LLM 모델**
    - `app/src/main/assets/models/README.md` 참고
-   - `gemma3-270m-it-q4_0-web.task` 넣으면 LLM 탐지 사용, 없으면 Rule-based만 동작
+   - `gemma3-270m-it-q8.task` 넣으면 LLM 탐지 사용, 없으면 Rule-based만 동작 (모바일용, `-web` 접미사 없음)
 
 ---
 

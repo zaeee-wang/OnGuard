@@ -159,7 +159,7 @@ THECHEAT_API_KEY=your_api_key_here
 sLLM 기능을 사용하려면 Gemma 모델이 필요합니다:
 
 1. [Hugging Face](https://huggingface.co/litert-community/gemma-3-270m-it) 에서 라이선스 동의
-2. `gemma3-270m-it-q4_0-web.task` (249MB) 다운로드
+2. `gemma3-270m-it-q8.task` (304MB) 다운로드 (모바일용, `-web` 접미사 없음)
 3. `app/src/main/assets/models/` 폴더에 복사
 
 > **Note**: 모델 없이도 Rule-based 탐지는 정상 작동합니다.
