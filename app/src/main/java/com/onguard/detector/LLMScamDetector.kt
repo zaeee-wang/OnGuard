@@ -30,8 +30,8 @@ class LLMScamDetector @Inject constructor(
 ) {
     companion object {
         private const val TAG = "LLMScamDetector"
-        /** assets 내 모델 상대 경로 (MediaPipe .task 형식) */
-        private const val MODEL_PATH = "models/gemma3-270m-it-q4_0-web.task"
+        /** assets 내 모델 상대 경로 (MediaPipe .task 형식, 모바일용) */
+        private const val MODEL_PATH = "models/gemma3-270m-it-q8.task"
         private const val MAX_TOKENS = 256
         private const val TEMPERATURE = 0.7f
         private const val TOP_K = 40
