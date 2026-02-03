@@ -430,14 +430,26 @@ class OverlayService : Service() {
     private fun removeOverlay() {
         Log.d(TAG, "=== removeOverlay() called ===")
         Log.d(TAG, "  - Overlay view exists: ${overlayView != null}")
-        overlayView?.let {
+        
+        overlayView?.let { view ->
             try {
-                windowManager?.removeView(it)
+                Log.d(TAG, "  - Removing overlay view from WindowManager...")
+                Log.d(TAG, "  - View state before removal:")
+                Log.d(TAG, "    - Visibility: ${view.visibility}")
+                Log.d(TAG, "    - Width: ${view.width}px, Height: ${view.height}px")
+                Log.d(TAG, "    - Is attached: ${view.isAttachedToWindow}")
+                
+                windowManager?.removeView(view)
                 overlayView = null
-                Log.d(TAG, "Overlay view removed")
+                Log.i(TAG, "=== Overlay view removed successfully ===")
             } catch (e: Exception) {
-                Log.e(TAG, "Failed to remove overlay view", e)
+                Log.e(TAG, "=== Failed to remove overlay view ===", e)
+                Log.e(TAG, "  - Exception type: ${e.javaClass.name}")
+                Log.e(TAG, "  - Exception message: ${e.message}")
+                e.printStackTrace()
             }
+        } ?: run {
+            Log.d(TAG, "  - No overlay view to remove")
         }
     }
 
