@@ -15,14 +15,6 @@ android {
     // java-llama.cpp 서브모듈 경로
     val jllamaLib = file("java-llama.cpp")
 
-    // 서브모듈의 native 라이브러리가 없는 경우, 한 번 mvn compile 실행
-    if (!file("$jllamaLib/target").exists()) {
-        project.exec {
-            commandLine = listOf("mvn", "compile")
-            workingDir = jllamaLib
-        }
-    }
-
     defaultConfig {
         applicationId = "com.onguard"
         minSdk = 26
