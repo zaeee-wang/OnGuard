@@ -35,6 +35,17 @@ android {
         buildConfigField("String", "THECHEAT_API_KEY", "\"${properties.getProperty("THECHEAT_API_KEY", "")}\"")
         buildConfigField("String", "KISA_API_KEY", "\"${properties.getProperty("KISA_API_KEY", "")}\"")
 
+        // Google Gemini API Key (무료 티어 사용)
+        // - local.properties에 GEMINI_API_KEY=... 로 설정
+        buildConfigField("String", "GEMINI_API_KEY", "\"${properties.getProperty("GEMINI_API_KEY", "")}\"")
+
+        // Gemini LLM 일일 호출 상한 (무료 티어 보호용)
+        // - Google Gemini 무료 티어: 프로젝트 기준 하루 250회 제한
+        // - 기본값: 100 (MVP 단계에서는 넉넉한 버퍼 확보)
+        // - local.properties 에서 GEMINI_MAX_CALLS_PER_DAY=숫자 로 조정 가능
+        val geminiMaxCallsPerDay = properties.getProperty("GEMINI_MAX_CALLS_PER_DAY", "100")
+        buildConfigField("int", "GEMINI_MAX_CALLS_PER_DAY", geminiMaxCallsPerDay)
+
         // Sherpa-ONNX LLM 사용 여부 플래그
         // - 기본값은 true (LLM 활성)
         // - local.properties에 ENABLE_LLM=false 를 설정하면 비활성화된다.

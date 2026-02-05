@@ -16,13 +16,14 @@ import kotlin.math.max
  *
  * ## 탐지 흐름
  * 1. Rule-based 1차 필터 (키워드 + URL)
- * 2. 신뢰도 0.3~0.7 구간이면 LLM 추가 분석
- * 3. 가중 평균(Rule 40%, LLM 60%)으로 최종 판정
+ * 2. 최근 대화 맥락(마지막 N줄)을 추출해 LLM 컨텍스트로 활용
+ * 3. 신뢰도 0.25~0.8 구간이면서 금전/긴급/URL 신호가 있을 때만 LLM 추가 분석
+ * 4. 가중 평균(Rule 40%, LLM 60%)으로 최종 판정
  *
  * ## 임계값
  * - 0.7 초과: 고위험, 즉시 스캠 판정 (LLM 미호출)
  * - 0.4~0.7: 중위험, 조합 보너스 후 필요 시 LLM 호출
- * - 0.3~0.7: LLM 트리거 구간
+ * - 0.25~0.8: LLM 트리거 구간 (금전/긴급/URL 신호가 있을 때)
  * - 0.5 초과: 최종 스캠 판정
  *
  * @param keywordMatcher 키워드 기반 규칙 탐지기
@@ -44,29 +45,16 @@ class HybridScamDetector @Inject constructor(
 
         // 중위험 임계값: 40% 이상이면 추가 조합 분석 수행
         private const val MEDIUM_CONFIDENCE_THRESHOLD = 0.4f
-        private const val LOW_CONFIDENCE_THRESHOLD = 0.3f
+        private const val LOW_CONFIDENCE_THRESHOLD = 0.25f
 
-        // LLM 분석 조건: Rule-based 결과가 애매한 경우
-        private const val LLM_TRIGGER_LOW = 0.3f
-        private const val LLM_TRIGGER_HIGH = 0.7f
+        // LLM 분석 조건: Rule-based 결과가 애매한 경우(0.25~0.8) + 금전/긴급/URL 신호 존재
+        private const val LLM_TRIGGER_LOW = 0.25f
+        private const val LLM_TRIGGER_HIGH = 0.8f
 
         // 가중치
         private const val RULE_WEIGHT = 0.4f
         private const val LLM_WEIGHT = 0.6f
     }
-
-    /**
-     * LLM 모델 초기화
-     * Application 시작 시 호출 권장
-     */
-    suspend fun initializeLLM(): Boolean {
-        return llmScamDetector.initialize()
-    }
-
-    /**
-     * LLM 사용 가능 여부
-     */
-    fun isLLMAvailable(): Boolean = llmScamDetector.isAvailable()
 
     /**
      * 주어진 텍스트를 분석하여 스캠 여부와 상세 결과를 반환한다.
@@ -76,6 +64,12 @@ class HybridScamDetector @Inject constructor(
      * @return [ScamAnalysis] 최종 분석 결과 (스캠 여부, 신뢰도, 이유, 경고 메시지 등)
      */
     suspend fun analyze(text: String, useLLM: Boolean = true): ScamAnalysis {
+        // 0. 최근 대화 맥락 추출 (마지막 N줄)
+        val lines = text.split('\n').map { it.trim() }.filter { it.isNotEmpty() }
+        val recentLines = if (lines.size <= 10) lines else lines.takeLast(10)
+        val recentContext = recentLines.joinToString("\n")
+        val currentMessage = recentLines.lastOrNull().orEmpty()
+
         // 1. Rule-based keyword detection (fast)
         val keywordResult = keywordMatcher.analyze(text)
 
@@ -134,15 +128,33 @@ class HybridScamDetector @Inject constructor(
             }
         }
 
-        // 7. LLM 분석 (애매한 경우에만)
-        if (useLLM && llmScamDetector.isAvailable() &&
-            ruleConfidence in LLM_TRIGGER_LOW..LLM_TRIGGER_HIGH
-        ) {
+        // 7. LLM 분석
+        // - 룰 기반 결과 + 키워드/URL 신호를 바탕으로 LLM에게 컨텍스트 설명/보조 신뢰도를 요청한다.
+        val lowerText = text.lowercase()
+        val hasMoneyKeyword = listOf("입금", "송금", "계좌", "선입금", "대출", "돈", "급전")
+            .any { lowerText.contains(it) }
+        val hasUrgencyKeyword = listOf("긴급", "급하", "빨리", "지금당장", "지금 바로", "오늘안에")
+            .any { lowerText.contains(it) }
+        val hasUrl = urlResult.urls.isNotEmpty()
+
+        val shouldUseLLM = useLLM &&
+                llmScamDetector.isAvailable() &&
+                ruleConfidence in LLM_TRIGGER_LOW..LLM_TRIGGER_HIGH &&
+                (hasMoneyKeyword || hasUrl || hasUrgencyKeyword)
+
+        if (shouldUseLLM) {
             DebugLog.debugLog(TAG) {
-                "step=llm_trigger ruleConfidence=$ruleConfidence useLLM=$useLLM llmAvailable=${llmScamDetector.isAvailable()}"
+                "step=llm_trigger ruleConfidence=$ruleConfidence useLLM=$useLLM llmAvailable=${llmScamDetector.isAvailable()} " +
+                        "hasMoneyKeyword=$hasMoneyKeyword hasUrgencyKeyword=$hasUrgencyKeyword hasUrl=$hasUrl"
             }
 
-            val llmResult = llmScamDetector.analyze(text)
+            val llmResult = llmScamDetector.analyze(
+                originalText = text,
+                recentContext = recentContext,
+                currentMessage = currentMessage,
+                ruleReasons = combinedReasons,
+                detectedKeywords = keywordResult.detectedKeywords
+            )
 
             if (llmResult != null) {
                 return combineResults(
@@ -159,7 +171,10 @@ class HybridScamDetector @Inject constructor(
         } else if (!llmScamDetector.isAvailable()) {
             DebugLog.warnLog(TAG) { "step=llm_fallback reason=llm_not_available ruleConfidence=$ruleConfidence" }
         } else {
-            DebugLog.debugLog(TAG) { "step=llm_bypass reason=outside_trigger_window ruleConfidence=$ruleConfidence" }
+            DebugLog.debugLog(TAG) {
+                "step=llm_bypass reason=outside_trigger_window ruleConfidence=$ruleConfidence " +
+                        "hasMoneyKeyword=$hasMoneyKeyword hasUrgencyKeyword=$hasUrgencyKeyword hasUrl=$hasUrl"
+            }
         }
 
         // 8. Final rule-based result
@@ -300,12 +315,4 @@ class HybridScamDetector @Inject constructor(
         }
     }
 
-    /**
-     * LLM 탐지기 리소스를 해제한다.
-     *
-     * 앱 종료 또는 탐지기 교체 시 호출한다.
-     */
-    fun close() {
-        llmScamDetector.close()
-    }
 }
