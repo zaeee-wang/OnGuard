@@ -13,49 +13,38 @@ import java.io.IOException
 /**
  * llama.cpp(java-llama.cpp) 기반 온디바이스 LLM 매니저.
  *
- * - assets/models/model.gguf  →  filesDir/models/model.gguf 로 복사
- * - Qwen 2.5 ChatML 프롬프트 포맷으로 피싱 여부/위험도 분석
- * - 코루틴(Dispatchers.IO)으로 비동기 추론
+ * - [LlamaConfig] 경로로 assets → filesDir GGUF 복사 후 로드
+ * - [QwenPromptBuilder]로 ChatML 프롬프트 구성
+ * - 코루틴(Dispatchers.IO)에서 비동기 초기화/추론
  */
-class LlamaManager(private val context: Context) {
+class LlamaManager(private val context: Context) : LlamaBackend {
 
     companion object {
         private const val TAG = "LlamaManager"
-
-        // assets 하위 경로 (app/src/main/assets/models/model.gguf)
-        private const val ASSET_MODEL_PATH = "models/model.gguf"
-
-        // 내부 저장소에 복사될 상대 경로
-        private const val LOCAL_MODEL_DIR = "models"
-        private const val LOCAL_MODEL_NAME = "model.gguf"
-
-        // 실패 시 반환할 기본 메시지
-        private const val FALLBACK_MESSAGE = "분석 실패"
     }
 
-    // llama.cpp Java 바인딩 모델 인스턴스
     private var llamaModel: LlamaModel? = null
 
     /**
-     * 모델 파일을 assets → filesDir 로 복사하고,
-     * 해당 경로를 사용해 llama.cpp 모델을 초기화한다.
+     * 모델 파일을 assets → filesDir 로 복사한 뒤 LlamaModel 초기화.
+     *
+     * @return [LlamaInitResult.Success] 또는 [LlamaInitResult.Failure]
      */
-    suspend fun initModel(): Boolean = withContext(Dispatchers.IO) {
+    suspend fun initModel(): LlamaInitResult = withContext(Dispatchers.IO) {
         if (llamaModel != null) {
             Log.d(TAG, "Llama model already initialized.")
-            return@withContext true
+            return@withContext LlamaInitResult.Success
         }
 
         try {
-            // 1) assets/models/model.gguf → filesDir/models/model.gguf 복사
-            val modelsDir = File(context.filesDir, LOCAL_MODEL_DIR).apply {
+            val modelsDir = File(context.filesDir, LlamaConfig.LOCAL_MODEL_DIR).apply {
                 if (!exists()) mkdirs()
             }
-            val localModelFile = File(modelsDir, LOCAL_MODEL_NAME)
+            val localModelFile = File(modelsDir, LlamaConfig.LOCAL_MODEL_NAME)
 
             if (!localModelFile.exists()) {
                 Log.d(TAG, "Copying GGUF model from assets to filesDir...")
-                context.assets.open(ASSET_MODEL_PATH).use { input ->
+                context.assets.open(LlamaConfig.ASSET_MODEL_PATH).use { input ->
                     localModelFile.outputStream().use { output ->
                         input.copyTo(output)
                     }
@@ -65,87 +54,53 @@ class LlamaManager(private val context: Context) {
                 Log.d(TAG, "Using existing local model: ${localModelFile.absolutePath}")
             }
 
-            // 2) java-llama.cpp ModelParameters 설정 후 모델 로드
             val modelParams = ModelParameters()
                 .setModel(localModelFile.absolutePath)
-                // Android에선 GPU 레이어를 0으로 두고 CPU만 사용하는 것이 안전
-                .setGpuLayers(0)
+                .setGpuLayers(LlamaConfig.GPU_LAYERS_ANDROID)
 
             Log.d(TAG, "Initializing LlamaModel with GGUF: ${localModelFile.absolutePath}")
-            val model = LlamaModel(modelParams)
-
-            llamaModel = model
+            llamaModel = LlamaModel(modelParams)
             Log.i(TAG, "LlamaModel initialized successfully.")
-            true
+            LlamaInitResult.Success
         } catch (e: IOException) {
             Log.e(TAG, "Failed to copy or load GGUF model from assets.", e)
             llamaModel = null
-            false
+            LlamaInitResult.Failure(e)
         } catch (e: Exception) {
             Log.e(TAG, "Unexpected error while initializing LlamaModel.", e)
             llamaModel = null
-            false
+            LlamaInitResult.Failure(e)
         }
     }
 
     /**
-     * Qwen 2.5 ChatML 포맷으로 프롬프트를 구성한다.
+     * 입력 텍스트에 대해 LLM으로 분석(추론) 수행.
      *
-     * 사용자 입력에는 [Rule 1차 분석 요약] + [메시지] 형태로 전달되며,
-     * 응답은 반드시 아래 JSON만 출력하도록 지시한다.
-     *
-     * 포맷:
-     * <|im_start|>system ... <|im_end|>
-     * <|im_start|>user {입력} <|im_end|>
-     * <|im_start|>assistant
+     * @param input 사용자 입력 (Rule/URL 요약 + 메시지 등). [QwenPromptBuilder]로 ChatML 래핑됨
+     * @return [LlamaAnalyzeResult] — Success(text), NotInitialized, EmptyInput, Error
      */
-    private fun buildQwenPrompt(userInput: String): String {
-        val systemInstruction = """
-            너는 사기 탐지 전문가야. 사용자가 보내는 메시지(및 선택적 1차 분석 요약)를 보고, 반드시 아래 JSON 형식으로만 답변해. 다른 텍스트는 출력하지 마.
-            JSON 형식:
-            {"isScam": true 또는 false, "confidence": 0.0~1.0, "scamType": "투자사기" 또는 "중고거래사기" 또는 "피싱" 또는 "정상", "warningMessage": "사용자에게 보여줄 경고 메시지 (한국어, 2문장 이내)", "reasons": ["위험 요소 1", "위험 요소 2"], "suspiciousParts": ["의심되는 문구 인용"]}
-        """.trimIndent()
-
-        return buildString {
-            append("<|im_start|>system\n")
-            append(systemInstruction)
-            append("\n<|im_end|>\n")
-            append("<|im_start|>user\n")
-            append(userInput.trim())
-            append("\n<|im_end|>\n")
-            append("<|im_start|>assistant\n")
-        }
-    }
-
-    /**
-     * 입력 텍스트에 대해 LLM으로 피싱 여부/위험도를 분석한다.
-     *
-     * - Dispatchers.IO 에서 실행
-     * - 에러 시 "분석 실패" 반환
-     */
-    suspend fun analyzeText(input: String): String = withContext(Dispatchers.IO) {
+    suspend fun analyzeText(input: String): LlamaAnalyzeResult = withContext(Dispatchers.IO) {
         val model = llamaModel
         if (model == null) {
             Log.w(TAG, "analyzeText() called before initModel().")
-            return@withContext FALLBACK_MESSAGE
+            return@withContext LlamaAnalyzeResult.NotInitialized
         }
 
         val trimmed = input.trim()
         if (trimmed.isEmpty()) {
-            return@withContext FALLBACK_MESSAGE
+            return@withContext LlamaAnalyzeResult.EmptyInput
         }
 
-        val prompt = buildQwenPrompt(trimmed)
+        val prompt = QwenPromptBuilder.buildPrompt(trimmed)
 
-        return@withContext try {
+        try {
             Log.d(TAG, "Starting inference. Prompt length=${prompt.length}")
 
             val inferParams = InferenceParameters(prompt)
-                .setTemperature(0.7f)
-                .setPenalizeNl(true)
-                // Qwen ChatML은 보통 <|im_end|> 등을 stop 토큰으로 사용
-                .setStopStrings("<|im_end|>")
-                .setMaxTokens(256)
+                .setTemperature(LlamaConfig.DEFAULT_TEMPERATURE)
+                .setPenalizeNl(LlamaConfig.DEFAULT_PENALIZE_NL)
+                .setStopStrings(LlamaConfig.STOP_STRING_IM_END)
+                .setMaxTokens(LlamaConfig.DEFAULT_MAX_TOKENS)
 
             val sb = StringBuilder()
             for (output in model.generate(inferParams)) {
@@ -155,15 +110,28 @@ class LlamaManager(private val context: Context) {
             val result = sb.toString().trim()
             Log.d(TAG, "LLM result: ${result.take(200)}")
 
-            if (result.isBlank()) FALLBACK_MESSAGE else result
+            if (result.isBlank()) {
+                LlamaAnalyzeResult.Success(LlamaConfig.FALLBACK_MESSAGE)
+            } else {
+                LlamaAnalyzeResult.Success(result)
+            }
         } catch (e: Exception) {
             Log.e(TAG, "Error during LLM inference.", e)
-            FALLBACK_MESSAGE
+            LlamaAnalyzeResult.Error(e)
         }
     }
 
     /**
-     * 모델과 네이티브 리소스를 해제한다.
+     * 이전 API 호환: 분석 결과를 문자열로 반환.
+     * 실패 시 [LlamaConfig.FALLBACK_MESSAGE] 반환.
+     */
+    suspend fun analyzeTextAsString(input: String): String = when (val result = analyzeText(input)) {
+        is LlamaAnalyzeResult.Success -> result.text
+        else -> LlamaConfig.FALLBACK_MESSAGE
+    }
+
+    /**
+     * 모델과 네이티브 리소스 해제.
      */
     fun close() {
         try {
@@ -175,4 +143,3 @@ class LlamaManager(private val context: Context) {
         }
     }
 }
-
