@@ -258,8 +258,9 @@ class LLMScamDetector @Inject constructor() : ScamLlmClient {
 
         client.newCall(request).execute().use { response ->
             if (!response.isSuccessful) {
+                val errorBody = response.body?.string() ?: "no error body"
                 DebugLog.warnLog(TAG) {
-                    "step=call error code=${response.code} message=${response.message}"
+                    "step=call error code=${response.code} message=${response.message} body=$errorBody"
                 }
                 return null
             }
