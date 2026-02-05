@@ -14,12 +14,23 @@
    - `--recurse-submodules`: 서브모듈(java-llama.cpp)을 clone 시 함께 받기 (이걸 쓰면 ① 서브모듈 초기화 생략 가능)
    - 브랜치가 Backend면 `-b Backend` 로 바꾸기. 이미 클론했다면 `git pull origin Ai` 후 `git submodule update --init`
 
-2. **clone 이후 할 일** (한 번만 하면 됨)
+2. **빌드·테스트 자동화 (클론 직후)**  
+   **③ local.properties**만 준비한 뒤, 아래 한 번만 실행하면 됩니다. 서브모듈 초기화와 NDK 패치는 **첫 빌드/테스트 시 Gradle이 자동으로** 실행합니다.
+   ```bash
+   # local.properties 없으면: local.properties.template 복사 후 sdk.dir 설정
+   ./gradlew build
+   # 또는 단위 테스트만
+   ./gradlew test
+   ```
+   - 첫 실행 시: `ensureJavaLlamaSubmodule` → `applyJavaLlamaPatch` 가 자동 실행된 뒤 빌드/테스트가 진행됩니다.
+   - 수동으로 하고 싶으면 아래 ①·②를 먼저 실행해도 됩니다.
+
+3. **clone 이후 할 일** (수동으로 할 때)
 
    | 순서 | 할 일 | 필수 |
    |------|--------|------|
-   | ① | **서브모듈 초기화** — `git submodule update --init` (java-llama.cpp) | ✅ |
-   | ② | **Android NDK 패치 적용** — `./scripts/apply-java-llama-android-patch.sh` (mac/Linux) 또는 `scripts\apply-java-llama-android-patch.bat` (Windows) | ✅ |
+   | ① | **서브모듈 초기화** — `git submodule update --init` (java-llama.cpp). *`./gradlew build` / `./gradlew test` 시 자동 실행됨* | ✅ (자동) |
+   | ② | **Android NDK 패치 적용** — `./scripts/apply-java-llama-android-patch.sh` (mac/Linux) 또는 `scripts\apply-java-llama-android-patch.bat` (Windows). *`./gradlew build` / `./gradlew test` 시 자동 실행됨* | ✅ (자동) |
    | ③ | **local.properties 생성** — `local.properties.template`을 복사해 `local.properties` 만들고, `sdk.dir`(Android SDK 경로)와 `THECHEAT_API_KEY`(선택) 입력 | ✅ (sdk.dir 필수) |
    | ④ | **(선택) LLM 모델** — Qwen GGUF를 `app/src/main/assets/models/qwen2.5-1.5b-instruct-q4_k_m.gguf` 로 넣으면 LLM 탐지 사용, 없으면 Rule-based만 동작 | 선택 |
 
@@ -64,18 +75,18 @@
    4. 처음 clone 할 때 `--recurse-submodules` 옵션을 쓰면 서브모듈을 한 번에 받아서 이 오류를 줄일 수 있음.
 
    ```bash
-   # ① 서브모듈 (clone 시 --recurse-submodules 안 썼을 때만)
+   # ① 서브모듈 (clone 시 --recurse-submodules 안 썼을 때만; 또는 그냥 ./gradlew build 실행해도 자동 처리)
    git submodule update --init
 
-   # ② 패치 (mac/Linux)
+   # ② 패치 (mac/Linux) — 또는 ./gradlew build 시 자동 적용
    ./scripts/apply-java-llama-android-patch.sh
    # Windows: scripts\apply-java-llama-android-patch.bat
    ```
 
-3. **Android Studio에서 열기**
+4. **Android Studio에서 열기**
    - **File → Open** → **OnGuard** 폴더(루트) 선택 (`app` 폴더만 열지 말 것)
 
-4. **Gradle 동기화**
+5. **Gradle 동기화**
    - **File → Sync Project with Gradle Files** (또는 코끼리 아이콘)
    - "Gradle build finished" 나올 때까지 대기
 
