@@ -47,12 +47,13 @@ class OnGuardApplication : Application(), Configuration.Provider {
         super.onCreate()
         Log.i(TAG, "OnGuard Application started")
 
-        // LLM 모델은 이제 실제 분석 시점(하이브리드 탐지기)에서
-        // Rule-based 신뢰도가 애매한 경우에만 지연 초기화(lazy init)한다.
-        // => S10e 등에서 모델 로드 크래시가 나는지 구체적으로 관찰 가능.
-
         // WorkManager 초기화 및 주기적 업데이트 스케줄링
         initializeWorkManager()
+
+        // LLM 초기화 시도 (백그라운드)
+        // - ENABLE_LLM=true 인 경우에만 실제 ONNX 모델 로드를 시도한다.
+        // - 실패하더라도 Rule-based 탐지는 항상 동작한다.
+        initializeLLMInBackground()
     }
 
     /**

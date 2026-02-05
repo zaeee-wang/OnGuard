@@ -46,24 +46,30 @@ class LLMScamDetector @Inject constructor(
      */
     suspend fun initialize(): Boolean = withContext(Dispatchers.IO) {
         if (!BuildConfig.ENABLE_LLM) {
-            DebugLog.warnLog(TAG) { "step=init skip reason=disabled" }
+            DebugLog.warnLog(TAG) { "step=init skip reason=disabled buildConfigEnableLlm=${BuildConfig.ENABLE_LLM}" }
             return@withContext false
         }
 
-        if (isInitialized) return@withContext true
+        if (isInitialized) {
+            DebugLog.debugLog(TAG) { "step=init skip reason=already_initialized" }
+            return@withContext true
+        }
 
         try {
-            DebugLog.debugLog(TAG) { "step=init start" }
+            DebugLog.debugLog(TAG) {
+                "step=init start buildConfigEnableLlm=${BuildConfig.ENABLE_LLM}"
+            }
             val ok = sherpaPhishingAnalyzer.initModel()
             if (ok) {
                 isInitialized = true
                 DebugLog.debugLog(TAG) { "step=init success" }
             } else {
-                DebugLog.warnLog(TAG) { "step=init failed" }
+                DebugLog.warnLog(TAG) { "step=init failed reason=analyzer_init_false" }
             }
             ok
         } catch (e: Exception) {
             android.util.Log.e(TAG, "Failed to initialize LLM", e)
+            DebugLog.warnLog(TAG) { "step=init failed reason=exception type=${e.javaClass.simpleName}" }
             false
         }
     }

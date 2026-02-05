@@ -36,9 +36,9 @@ android {
         buildConfigField("String", "KISA_API_KEY", "\"${properties.getProperty("KISA_API_KEY", "")}\"")
 
         // Sherpa-ONNX LLM 사용 여부 플래그
-        // - local.properties에 ENABLE_LLM=true 를 설정하면 활성화된다.
-        // - 기본값은 false (안전 모드)
-        val enableLlm = properties.getProperty("ENABLE_LLM", "false")
+        // - 기본값은 true (LLM 활성)
+        // - local.properties에 ENABLE_LLM=false 를 설정하면 비활성화된다.
+        val enableLlm = properties.getProperty("ENABLE_LLM", "true")
         buildConfigField("boolean", "ENABLE_LLM", enableLlm)
     }
 

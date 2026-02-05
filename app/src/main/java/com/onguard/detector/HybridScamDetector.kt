@@ -151,7 +151,15 @@ class HybridScamDetector @Inject constructor(
                     detectedKeywords = keywordResult.detectedKeywords,
                     llmResult = llmResult
                 )
+            } else {
+                DebugLog.warnLog(TAG) { "step=llm_fallback reason=llm_result_null ruleConfidence=$ruleConfidence" }
             }
+        } else if (!useLLM) {
+            DebugLog.debugLog(TAG) { "step=llm_bypass reason=useLLM_false ruleConfidence=$ruleConfidence" }
+        } else if (!llmScamDetector.isAvailable()) {
+            DebugLog.warnLog(TAG) { "step=llm_fallback reason=llm_not_available ruleConfidence=$ruleConfidence" }
+        } else {
+            DebugLog.debugLog(TAG) { "step=llm_bypass reason=outside_trigger_window ruleConfidence=$ruleConfidence" }
         }
 
         // 8. Final rule-based result
