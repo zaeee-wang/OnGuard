@@ -8,10 +8,11 @@
 
 1. **프로젝트 가져오기**
    ```bash
-   git clone -b Backend https://github.com/jhparktime/DealGuard.git OnGuard
+   git clone -b Ai --recurse-submodules https://github.com/jhparktime/DealGuard.git OnGuard
    cd OnGuard
    ```
-   (프로젝트 명: **OnGuard**. 이미 클론했다면 `git pull origin Backend`)
+   - `--recurse-submodules`: 서브모듈(java-llama.cpp)을 clone 시 함께 받기 (이걸 쓰면 ① 서브모듈 초기화 생략 가능)
+   - 브랜치가 Backend면 `-b Backend` 로 바꾸기. 이미 클론했다면 `git pull origin Ai` 후 `git submodule update --init`
 
 2. **clone 이후 할 일** (한 번만 하면 됨)
 
@@ -43,8 +44,27 @@
       - 안 쓰면 그대로 두어도 됨
    4. **저장 후** 프로젝트 루트에 `local.properties` 파일이 있으면 됨 (Git에는 올리지 않음)
 
+   **서브모듈 오류 나올 때** (app/java-llama.cpp 비어 있음, "not a git repository" 등):
+   1. 프로젝트 **루트**(OnGuard 폴더)에서 CMD 또는 PowerShell:
+      ```bash
+      git submodule update --init
+      ```
+   2. **"not our ref" / "did not contain ... Direct fetching of that commit failed"** 가 나오면:  
+      예전에 부모 저장소가 가리키던 서브모듈 커밋이 원격에 없을 때입니다. **최신 부모 저장소**를 받은 뒤 서브모듈을 다시 맞추면 됩니다.
+      ```bash
+      git pull origin Ai
+      git submodule sync
+      git submodule update --init
+      ```
+      (Backend 브랜치면 `git pull origin Backend` 로 바꾸기.)
+   3. 그래도 실패하면: `app/java-llama.cpp` 폴더를 **삭제**한 뒤 다시:
+      ```bash
+      git submodule update --init
+      ```
+   4. 처음 clone 할 때 `--recurse-submodules` 옵션을 쓰면 서브모듈을 한 번에 받아서 이 오류를 줄일 수 있음.
+
    ```bash
-   # ① 서브모듈
+   # ① 서브모듈 (clone 시 --recurse-submodules 안 썼을 때만)
    git submodule update --init
 
    # ② 패치 (mac/Linux)
@@ -166,6 +186,8 @@
 
 | 현상 | 확인 순서 |
 |------|-----------|
+| **서브모듈 오류** (app/java-llama.cpp 비어 있음 / not a git repository) | 프로젝트 **루트**에서 `git submodule update --init` 실행. 실패 시: `app/java-llama.cpp` 폴더 삭제 후 다시 `git submodule update --init`. clone 시 `--recurse-submodules` 옵션 쓰면 서브모듈을 함께 받음. |
+| **"not our ref" / "Direct fetching of that commit failed"** (서브모듈 커밋을 원격에서 못 찾을 때) | 프로젝트 **루트**에서 `git pull origin Ai` → `git submodule sync` → `git submodule update --init`. (Backend 브랜치면 `git pull origin Backend`.) |
 | **경로가 잘못되었다고 나옴** (local.properties) | Windows: `sdk.dir`에 **백슬래시(`\`) 대신 슬래시(`/`)만** 사용. 예: `sdk.dir=C:/Users/이름/AppData/Local/Android/Sdk` |
 | **오버레이 안 뜸** | 오버레이 권한 ON인지, Logcat에 OverlayService 에러 있는지 |
 | **텍스트를 안 잡음** | 접근성 서비스 ON인지, 대상 앱이 지원 목록인지, Logcat에 `onAccessibilityEvent` 로그 있는지 |
