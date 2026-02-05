@@ -111,13 +111,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("com.squareup.okhttp3:logging-interceptor:4.12.0")
 
-    // TensorFlow Lite
-    implementation("org.tensorflow:tensorflow-lite:2.14.0")
-    implementation("org.tensorflow:tensorflow-lite-support:0.4.4")
-    implementation("org.tensorflow:tensorflow-lite-gpu:2.14.0")
-
-    // MediaPipe LLM Inference API (Gemma 지원)
-    implementation("com.google.mediapipe:tasks-genai:0.10.14")
+    // Sherpa-ONNX (Android LLM)
+    implementation("com.k2fsa.sherpa.onnx:sherpa-onnx:1.10.16")
 
     // Gson
     implementation("com.google.code.gson:gson:2.10.1")

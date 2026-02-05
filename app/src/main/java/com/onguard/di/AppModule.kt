@@ -1,6 +1,7 @@
 package com.onguard.di
 
 import android.content.Context
+import com.onguard.llm.SherpaPhishingAnalyzer
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -16,5 +17,13 @@ object AppModule {
     @Singleton
     fun provideApplicationContext(@ApplicationContext context: Context): Context {
         return context
+    }
+
+    @Provides
+    @Singleton
+    fun provideSherpaPhishingAnalyzer(
+        @ApplicationContext context: Context
+    ): SherpaPhishingAnalyzer {
+        return SherpaPhishingAnalyzer(context)
     }
 }

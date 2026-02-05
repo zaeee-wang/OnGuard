@@ -1,9 +1,9 @@
 package com.onguard.detector
 
-import android.util.Log
 import com.onguard.domain.model.DetectionMethod
 import com.onguard.domain.model.ScamAnalysis
 import com.onguard.domain.model.ScamType
+import com.onguard.util.DebugLog
 import javax.inject.Inject
 import javax.inject.Singleton
 import kotlin.math.max
@@ -37,7 +37,7 @@ class HybridScamDetector @Inject constructor(
 ) {
 
     companion object {
-        private const val TAG = "HybridScamDetector"
+        private const val TAG = "OnGuardHybrid"
 
         // 고위험 임계값: 70% 이상이면 즉시 스캠 판정
         private const val HIGH_CONFIDENCE_THRESHOLD = 0.7f
@@ -100,9 +100,13 @@ class HybridScamDetector @Inject constructor(
         }
         ruleConfidence = ruleConfidence.coerceIn(0f, 1f)
 
+        DebugLog.debugLog(TAG) {
+            "step=rule_result ruleConfidence=$ruleConfidence keywordReasons=${keywordResult.reasons.size} urlReasons=${urlResult.reasons.size} suspiciousUrlCount=${urlResult.suspiciousUrls.size}"
+        }
+
         // 5. Early return for very high confidence (명확한 스캠)
         if (ruleConfidence > HIGH_CONFIDENCE_THRESHOLD) {
-            Log.d(TAG, "High confidence rule-based detection: $ruleConfidence")
+            DebugLog.debugLog(TAG) { "step=early_return ruleOnly=true confidence=$ruleConfidence" }
             return createRuleBasedResult(
                 ruleConfidence,
                 combinedReasons,
@@ -134,7 +138,9 @@ class HybridScamDetector @Inject constructor(
         if (useLLM && llmScamDetector.isAvailable() &&
             ruleConfidence in LLM_TRIGGER_LOW..LLM_TRIGGER_HIGH
         ) {
-            Log.d(TAG, "Triggering LLM analysis for confidence: $ruleConfidence")
+            DebugLog.debugLog(TAG) {
+                "step=llm_trigger ruleConfidence=$ruleConfidence useLLM=$useLLM llmAvailable=${llmScamDetector.isAvailable()}"
+            }
 
             val llmResult = llmScamDetector.analyze(text)
 
@@ -179,7 +185,9 @@ class HybridScamDetector @Inject constructor(
         // 이유 목록 결합 (중복 제거)
         val allReasons = (ruleReasons + llmResult.reasons).distinct()
 
-        Log.d(TAG, "Combined result - Rule: $ruleConfidence, LLM: ${llmResult.confidence}, Final: $combinedConfidence")
+        DebugLog.debugLog(TAG) {
+            "step=combine rule=$ruleConfidence llm=${llmResult.confidence} final=$combinedConfidence isScam=${combinedConfidence > 0.5f || llmResult.isScam} scamType=${llmResult.scamType}"
+        }
 
         return ScamAnalysis(
             isScam = combinedConfidence > 0.5f || llmResult.isScam,

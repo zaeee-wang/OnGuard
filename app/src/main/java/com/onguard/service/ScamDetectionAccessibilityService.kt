@@ -5,11 +5,11 @@ import android.accessibilityservice.AccessibilityServiceInfo
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
-import android.util.Log
 import android.view.accessibility.AccessibilityEvent
 import android.view.accessibility.AccessibilityNodeInfo
 import com.onguard.detector.HybridScamDetector
 import com.onguard.domain.model.ScamAnalysis
+import com.onguard.util.DebugLog
 import dagger.hilt.android.AndroidEntryPoint
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -73,7 +73,7 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
     private var lastProcessedText: WeakReference<String>? = null
 
     companion object {
-        private const val TAG = "ScamDetectionService"
+        private const val TAG = "OnGuardService"
 
         // 디바운스 지연: 100ms
         // - 사용자 타이핑 중 과도한 분석 방지
@@ -142,7 +142,7 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
 
     override fun onServiceConnected() {
         super.onServiceConnected()
-        Log.i(TAG, "Accessibility Service Connected")
+        DebugLog.infoLog(TAG) { "step=service_connected" }
 
         val info = AccessibilityServiceInfo().apply {
             eventTypes = AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED or
@@ -165,6 +165,9 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
         when (event.eventType) {
             AccessibilityEvent.TYPE_WINDOW_CONTENT_CHANGED,
             AccessibilityEvent.TYPE_VIEW_TEXT_CHANGED -> {
+                DebugLog.debugLog(TAG) {
+                    "step=on_event type=${event.eventType} package=$packageName"
+                }
                 processEvent(event)
             }
             else -> return
@@ -184,22 +187,33 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
                 val extractedText = extractTextFromNode(node)
 
                 // 최소 길이 체크
-                if (extractedText.length < MIN_TEXT_LENGTH) return@launch
+                if (extractedText.length < MIN_TEXT_LENGTH) {
+                    DebugLog.debugLog(TAG) {
+                        "step=process_event skip reason=too_short length=${extractedText.length}"
+                    }
+                    return@launch
+                }
 
                 // 중복 텍스트 체크 (캐시)
                 val lastText = lastProcessedText?.get()
-                if (extractedText == lastText) return@launch
+                if (extractedText == lastText) {
+                    DebugLog.debugLog(TAG) { "step=process_event skip reason=duplicate_text" }
+                    return@launch
+                }
 
                 // 새로운 텍스트 저장 (WeakReference)
                 lastProcessedText = WeakReference(extractedText)
 
-                Log.d(TAG, "Extracted text (${extractedText.length} chars): ${extractedText.take(100)}...")
+                DebugLog.debugLog(TAG) {
+                    val masked = DebugLog.maskText(extractedText, maxLen = 50)
+                    "step=text_extracted length=${extractedText.length} masked=\"$masked\""
+                }
 
                 // 스캠 분석
                 analyzeForScam(extractedText, event.packageName.toString())
 
             } catch (e: Exception) {
-                Log.e(TAG, "Error processing event", e)
+                android.util.Log.e(TAG, "Error processing event", e)
             } finally {
                 node.recycle()
             }
@@ -259,14 +273,14 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
     private fun shouldSkipNode(node: AccessibilityNodeInfo): Boolean {
         // 1. 편집 가능 노드 스킵 (입력 필드)
         if (node.isEditable) {
-            Log.d(TAG, "Skipping editable node")
+            DebugLog.debugLog(TAG) { "step=skip_node reason=editable" }
             return true
         }
 
         // 2. 뷰 클래스 필터링
         val className = node.className?.toString() ?: ""
         if (SKIP_VIEW_CLASSES.any { className.contains(it, ignoreCase = true) }) {
-            Log.d(TAG, "Skipping by class: $className")
+            DebugLog.debugLog(TAG) { "step=skip_node reason=class_match class=$className" }
             return true
         }
 
@@ -275,7 +289,7 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
         if (resourceId.isNotEmpty() && SKIP_RESOURCE_ID_PATTERNS.any {
             resourceId.contains(it, ignoreCase = true)
         }) {
-            Log.d(TAG, "Skipping by resourceId: $resourceId")
+            DebugLog.debugLog(TAG) { "step=skip_node reason=resource_id resourceId=$resourceId" }
             return true
         }
 
@@ -285,7 +299,7 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
             if (windowPackage != null && KEYBOARD_PACKAGE_PREFIXES.any {
                 windowPackage.startsWith(it)
             }) {
-                Log.d(TAG, "Skipping keyboard package: $windowPackage")
+                DebugLog.debugLog(TAG) { "step=skip_node reason=keyboard_package package=$windowPackage" }
                 return true
             }
         } catch (e: Exception) {
@@ -308,16 +322,22 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
     private fun analyzeForScam(text: String, sourceApp: String) {
         serviceScope.launch {
             try {
+                DebugLog.debugLog(TAG) {
+                    val masked = DebugLog.maskText(text, maxLen = 50)
+                    "step=analyze_for_scam_start app=$sourceApp length=${text.length} masked=\"$masked\""
+                }
                 val analysis = scamDetector.analyze(text)
 
-                Log.d(TAG, "Analysis result - isScam: ${analysis.isScam}, confidence: ${analysis.confidence}")
+                DebugLog.debugLog(TAG) {
+                    "step=analyze_for_scam_result isScam=${analysis.isScam} confidence=${analysis.confidence} method=${analysis.detectionMethod}"
+                }
 
                 if (analysis.isScam && analysis.confidence >= SCAM_THRESHOLD) {
                     showScamWarning(analysis, sourceApp)
                 }
 
             } catch (e: Exception) {
-                Log.e(TAG, "Error analyzing text for scam", e)
+                android.util.Log.e(TAG, "Error analyzing text for scam", e)
             }
         }
     }
@@ -335,9 +355,9 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
     private fun showScamWarning(analysis: ScamAnalysis, sourceApp: String) {
         handler.post {
             try {
-                Log.w(TAG, "SCAM DETECTED! Type: ${analysis.scamType}, Confidence: ${analysis.confidence}")
-                Log.d(TAG, "Warning message: ${analysis.warningMessage}")
-                Log.d(TAG, "Reasons: ${analysis.reasons}")
+                DebugLog.warnLog(TAG) {
+                    "step=show_warning type=${analysis.scamType} confidence=${analysis.confidence} sourceApp=$sourceApp"
+                }
 
                 // OverlayService 시작 (새 필드 포함)
                 val intent = Intent(this, OverlayService::class.java).apply {
@@ -360,19 +380,19 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
                 startService(intent)
 
             } catch (e: Exception) {
-                Log.e(TAG, "Error showing scam warning", e)
+                android.util.Log.e(TAG, "Error showing scam warning", e)
             }
         }
     }
 
     override fun onInterrupt() {
-        Log.i(TAG, "Accessibility Service Interrupted")
+        DebugLog.infoLog(TAG) { "step=service_interrupted" }
     }
 
     override fun onDestroy() {
         super.onDestroy()
         serviceJob.cancel()
         debounceJob?.cancel()
-        Log.i(TAG, "Accessibility Service Destroyed")
+        DebugLog.infoLog(TAG) { "step=service_destroyed" }
     }
 }
