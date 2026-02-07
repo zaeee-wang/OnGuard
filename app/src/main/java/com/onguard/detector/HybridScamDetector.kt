@@ -11,7 +11,7 @@ import kotlin.math.max
 /**
  * 하이브리드 스캠 탐지기.
  *
- * Rule-based([KeywordMatcher], [UrlAnalyzer], [PhoneAnalyzer])와 LLM([LLMScamDetector]) 탐지를 결합하여
+ * Rule-based([KeywordMatcher], [UrlAnalyzer], [PhoneAnalyzer])와 LLM([ScamLlmClient]) 탐지를 결합하여
  * 정확도 높은 스캠 탐지를 수행한다.
  *
  * ## 탐지 흐름
@@ -29,14 +29,14 @@ import kotlin.math.max
  * @param keywordMatcher 키워드 기반 규칙 탐지기
  * @param urlAnalyzer URL 위험도 분석기
  * @param phoneAnalyzer 전화번호 위험도 분석기 (Counter Scam 112 DB)
- * @param llmScamDetector LLM 기반 탐지기 (Gemini API)
+ * @param scamLlmClient LLM 기반 탐지기 (API 또는 온디바이스 Gemma)
  */
 @Singleton
 class HybridScamDetector @Inject constructor(
     private val keywordMatcher: KeywordMatcher,
     private val urlAnalyzer: UrlAnalyzer,
     private val phoneAnalyzer: PhoneAnalyzer,
-    private val llmScamDetector: LLMScamDetector
+    private val scamLlmClient: ScamLlmClient
 ) {
 
     companion object {
@@ -151,23 +151,24 @@ class HybridScamDetector @Inject constructor(
         val hasScamPhone = phoneResult.hasScamPhones
 
         val shouldUseLLM = useLLM &&
-                llmScamDetector.isAvailable() &&
+                scamLlmClient.isAvailable() &&
                 ruleConfidence in LLM_TRIGGER_LOW..LLM_TRIGGER_HIGH &&
                 (hasMoneyKeyword || hasUrl || hasUrgencyKeyword || hasScamPhone)
 
         if (shouldUseLLM) {
             DebugLog.debugLog(TAG) {
-                "step=llm_trigger ruleConfidence=$ruleConfidence useLLM=$useLLM llmAvailable=${llmScamDetector.isAvailable()} " +
+                "step=llm_trigger ruleConfidence=$ruleConfidence useLLM=$useLLM llmAvailable=${scamLlmClient.isAvailable()} " +
                         "hasMoneyKeyword=$hasMoneyKeyword hasUrgencyKeyword=$hasUrgencyKeyword hasUrl=$hasUrl hasScamPhone=$hasScamPhone"
             }
 
-            val llmResult = llmScamDetector.analyze(
+            val request = ScamLlmRequest(
                 originalText = text,
                 recentContext = recentContext,
                 currentMessage = currentMessage,
                 ruleReasons = combinedReasons,
                 detectedKeywords = keywordResult.detectedKeywords
             )
+            val llmResult = scamLlmClient.analyze(request)
 
             if (llmResult != null) {
                 return combineResults(
@@ -181,7 +182,7 @@ class HybridScamDetector @Inject constructor(
             }
         } else if (!useLLM) {
             DebugLog.debugLog(TAG) { "step=llm_bypass reason=useLLM_false ruleConfidence=$ruleConfidence" }
-        } else if (!llmScamDetector.isAvailable()) {
+        } else if (!scamLlmClient.isAvailable()) {
             DebugLog.warnLog(TAG) { "step=llm_fallback reason=llm_not_available ruleConfidence=$ruleConfidence" }
         } else {
             DebugLog.debugLog(TAG) {
