@@ -2,7 +2,6 @@
 <resources>
     <style name="Theme.OnGuard" parent="android:Theme.Material.Light.NoActionBar" />
     
-    <!-- Fullscreen theme for Splash -->
     <style name="Theme.OnGuard.Fullscreen" parent="Theme.OnGuard">
         <item name="android:windowFullscreen">true</item>
         <item name="android:windowContentOverlay">@null</item>
