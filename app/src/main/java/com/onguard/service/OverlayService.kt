@@ -57,9 +57,13 @@ class OverlayService : Service() {
 
     companion object {
         private const val TAG = "OverlayService"
-        private const val NOTIFICATION_ID = 1001
+        private const val FOREGROUND_NOTIFICATION_ID = 3001 // 포그라운드 서비스용 고정 ID
         private const val CHANNEL_ID = "overlay_service_channel"
+        private const val SCAM_ALERT_CHANNEL_ID = "scam_alert_channel" // 스캠 알림용 채널
         private const val AUTO_DISMISS_DELAY = 15000L // 15 seconds
+        
+        // 스캠 알림용 동적 ID 생성 (타임스탬프 기반)
+        private var alertNotificationIdCounter = 4000
 
         // Intent extra keys
         const val EXTRA_CONFIDENCE = "confidence"
@@ -156,8 +160,15 @@ class OverlayService : Service() {
             hasCombination = hasCombination
         )
 
-        // Start foreground service
-        startForeground(NOTIFICATION_ID, createNotification())
+        // Show stacked notification for this scam alert
+        showScamAlertNotification(
+            confidence = confidence,
+            scamType = scamType,
+            warningMessage = warningMessage
+        )
+
+        // Start foreground service (포그라운드 서비스 유지용)
+        startForeground(FOREGROUND_NOTIFICATION_ID, createForegroundNotification())
 
         return START_NOT_STICKY
     }
@@ -314,7 +325,7 @@ class OverlayService : Service() {
         // Create layout params
         val params = WindowManager.LayoutParams(
             WindowManager.LayoutParams.MATCH_PARENT,
-            WindowManager.LayoutParams.MATCH_PARENT,
+            WindowManager.LayoutParams.WRAP_CONTENT,
             getWindowType(),
             WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
                     WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
@@ -634,26 +645,98 @@ class OverlayService : Service() {
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(
+            val notificationManager = getSystemService(NotificationManager::class.java)
+            
+            // 1. 포그라운드 서비스용 채널 (낮은 우선순위, 소리 없음)
+            val serviceChannel = NotificationChannel(
                 CHANNEL_ID,
                 "스캠 감지 서비스",
-                NotificationManager.IMPORTANCE_LOW
+                NotificationManager.IMPORTANCE_MIN // MIN으로 변경하여 조용히 실행
             ).apply {
                 description = "스캠 탐지 오버레이 서비스"
+                setShowBadge(false)
+            }
+            
+            // 2. 스캠 알림용 채널 (중간 우선순위, 소리/진동 있음)
+            val alertChannel = NotificationChannel(
+                SCAM_ALERT_CHANNEL_ID,
+                "스캠 감지 알림",
+                NotificationManager.IMPORTANCE_DEFAULT // DEFAULT로 낮춤
+            ).apply {
+                description = "스캠이 감지되었을 때 표시되는 알림"
+                enableVibration(true)
+                setShowBadge(true)
             }
 
-            val notificationManager = getSystemService(NotificationManager::class.java)
-            notificationManager?.createNotificationChannel(channel)
+            notificationManager?.createNotificationChannel(serviceChannel)
+            notificationManager?.createNotificationChannel(alertChannel)
         }
     }
 
-    private fun createNotification() =
+    private fun createForegroundNotification() =
         NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("OnGuard 실행 중")
-            .setContentText("스캠 탐지 서비스가 실행 중입니다")
+            .setContentTitle("OnGuard")
+            .setContentText("오버레이 표시 중")
             .setSmallIcon(android.R.drawable.ic_dialog_alert)
             .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setShowWhen(false)
             .build()
+    
+    /**
+     * 스캠 감지 시 누적되는 알림을 생성한다.
+     * 각 알림은 고유한 ID를 가지며, 기존 탐지 알림 아래에 쌓인다.
+     */
+    private fun showScamAlertNotification(
+        confidence: Float,
+        scamType: ScamType,
+        warningMessage: String?
+    ) {
+        val notificationId = alertNotificationIdCounter++
+        
+        // 위험도에 따른 제목 (이모지 제거)
+        val title = when {
+            confidence >= 0.8f -> "고위험 스캠 감지"
+            confidence >= 0.6f -> "중위험 스캠 감지"
+            else -> "저위험 스캠 감지"
+        }
+        
+        // 스캠 유형 라벨
+        val typeLabel = getScamTypeLabel(scamType)
+        
+        // 알림 메시지
+        val message = warningMessage ?: generateDefaultWarning(scamType, confidence)
+        
+        // 앱 열기 Intent
+        val openIntent = Intent(this, com.onguard.presentation.ui.main.MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        }
+        val pendingIntent = android.app.PendingIntent.getActivity(
+            this,
+            notificationId,
+            openIntent,
+            android.app.PendingIntent.FLAG_UPDATE_CURRENT or android.app.PendingIntent.FLAG_IMMUTABLE
+        )
+        
+        val notification = NotificationCompat.Builder(this, SCAM_ALERT_CHANNEL_ID)
+            .setSmallIcon(android.R.drawable.ic_dialog_alert)
+            .setContentTitle(title)
+            .setContentText("$typeLabel - ${(confidence * 100).toInt()}% 위험도")
+            .setStyle(NotificationCompat.BigTextStyle()
+                .bigText("$typeLabel\n위험도: ${(confidence * 100).toInt()}%\n\n$message"))
+            .setPriority(NotificationCompat.PRIORITY_DEFAULT) // DEFAULT 우선순위
+            .setAutoCancel(true) // 탭하면 자동으로 사라짐
+            .setContentIntent(pendingIntent)
+            .setShowWhen(true) // 날짜 표시
+            .setWhen(System.currentTimeMillis()) // 현재 시간으로 설정
+            .setOngoing(false) // 스와이프로 삭제 가능
+            .setCategory(NotificationCompat.CATEGORY_MESSAGE) // 메시지 카테고리
+            .build()
+        
+        val notificationManager = getSystemService(NotificationManager::class.java)
+        notificationManager?.notify(notificationId, notification)
+        
+        Log.d(TAG, "Scam alert notification shown with ID: $notificationId")
+    }
 
     override fun onBind(intent: Intent?): IBinder? = null
 
