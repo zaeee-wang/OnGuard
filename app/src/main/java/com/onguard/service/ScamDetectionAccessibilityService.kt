@@ -17,7 +17,6 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import java.lang.ref.WeakReference
 import javax.inject.Inject
@@ -212,7 +211,11 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
         private const val ACTION_OPEN = "com.onguard.action.OPEN"
     }
 
-    private var serviceStartTime: Long = 0L
+    private var currentSettings: DetectionSettings = DetectionSettings()
+
+    private val isPaused: Boolean
+        get() = currentSettings.remainingPauseTime() > 0
+
     private val notificationManager by lazy {
         getSystemService(Context.NOTIFICATION_SERVICE) as NotificationManager
     }
@@ -256,23 +259,35 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
                     AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS
             notificationTimeout = 100
         }
-
         serviceInfo = info
 
-        // 탐지 설정 변경 관찰 → 캐시 업데이트
+        observeSettings()
+    }
+
+    private fun observeSettings() {
         serviceScope.launch {
             detectionSettingsStore.settingsFlow.collect { settings ->
-                cachedSettings = settings
+                val isOverlayEnabled = android.provider.Settings.canDrawOverlays(this@ScamDetectionAccessibilityService)
+                val isAccessibilityEnabled = true // If we are here, accessibility is enabled
                 
-                // 탐지 활성화 시 시작 시간 기록 (최초 1회만)
-                if (settings.isDetectionEnabled && serviceStartTime == 0L) {
-                    serviceStartTime = SystemClock.elapsedRealtime()
-                } else if (!settings.isDetectionEnabled) {
-                    serviceStartTime = 0L
+                // Strict Failsafe: If conditions are not met, force disable detection
+                if (!settings.canStartDetection(isAccessibilityEnabled, isOverlayEnabled)) {
+                    if (settings.isDetectionEnabled) {
+                        detectionSettingsStore.setDetectionEnabled(false)
+                        return@collect
+                    }
                 }
+
+                val previousSettings = currentSettings
+                currentSettings = settings
                 
-                // 알림 업데이트
-                updateForegroundNotification()
+                // Update notification and widgets
+                if (previousSettings.isDetectionEnabled != settings.isDetectionEnabled ||
+                    previousSettings.pauseUntilTimestamp != settings.pauseUntilTimestamp ||
+                    previousSettings.isWidgetEnabled != settings.isWidgetEnabled) {
+                    updateForegroundNotification()
+                    manageFloatingControlService()
+                }
 
                 // 안전 확인 (모든 앱 비활성화 시 자동 종료 등)
                 validateSafetyAndDisableIfNeeded()
@@ -282,6 +297,26 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
                     "pauseUntil=${settings.pauseUntilTimestamp} " +
                     "disabledApps=${settings.disabledApps.size}"
                 }
+            }
+        }
+    }
+
+    /**
+     * 안전 상태 확인 및 필요 시 탐지 중지
+     */
+    private fun validateSafetyAndDisableIfNeeded() {
+        if (!currentSettings.isDetectionEnabled) return
+
+        val isOverlayEnabled = Settings.canDrawOverlays(this)
+        val isAccessibilityEnabled = true // 실행 중이므로 true로 간주
+        
+        if (!currentSettings.canStartDetection(isAccessibilityEnabled, isOverlayEnabled)) {
+            serviceScope.launch {
+                detectionSettingsStore.setDetectionEnabled(false)
+            }
+            handler.post {
+                val reason = if (!isOverlayEnabled) "권한 해제" else "모든 앱 비활성화"
+                Toast.makeText(this, "보호 기능이 중단되었습니다 ($reason).", Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -891,16 +926,13 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
     }
 
     private fun buildNotification(): Notification {
-        val isEnabled = cachedSettings.isDetectionEnabled
-        val isPaused = cachedSettings.remainingPauseTime() > 0
+        val isEnabled = currentSettings.isDetectionEnabled
+        val isPaused = currentSettings.remainingPauseTime() > 0
         
         val contentTitle: String
         val iconRes = R.drawable.lg_brandmark_red // 3rd image style icon
         
-        // Timer setup
-        if (serviceStartTime == 0L) {
-             serviceStartTime = SystemClock.elapsedRealtime()
-        }
+        val baseTime = currentSettings.calculateChronometerBase()
 
         val openIntent = getPendingIntent(ACTION_OPEN)
 
@@ -928,7 +960,7 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
         } else {
             // Active state
             val remoteViews = RemoteViews(packageName, R.layout.view_notification_active_body)
-            remoteViews.setChronometer(R.id.notification_timer, serviceStartTime, null, true)
+            remoteViews.setChronometer(R.id.notification_timer, baseTime, null, true)
             
             builder.setContentTitle("OnGuard가 탐지중입니다.")
             builder.setCustomBigContentView(remoteViews)
@@ -963,7 +995,7 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
                 ACTION_RESUME, ACTION_START -> {
                     // Start/Resume 시 권한 및 앱 설정 확인
                     val isOverlayEnabled = Settings.canDrawOverlays(this@ScamDetectionAccessibilityService)
-                    val isAnyAppEnabled = SUPPORTED_PACKAGES.any { it !in cachedSettings.disabledApps }
+                    val isAnyAppEnabled = SUPPORTED_PACKAGES.any { it !in currentSettings.disabledApps }
 
                     if (!isOverlayEnabled || !isAnyAppEnabled) {
                         // 설정이 미비할 경우 설정 화면으로 유도
@@ -1005,23 +1037,26 @@ class ScamDetectionAccessibilityService : AccessibilityService() {
         }
     }
 
+    
     /**
-     * 실행 중 권한이 해제되거나 모든 앱이 비활성화된 경우 탐지 기능을 자동으로 종료한다.
+     * FloatingControlService 시작/종료 관리 및 상태 동기화
      */
-    private fun validateSafetyAndDisableIfNeeded() {
-        if (!cachedSettings.isDetectionEnabled) return
+    private fun manageFloatingControlService() {
+        // Widget lifecycle is now managed by ViewModels (MainViewModel, SettingsViewModel)
+        // based on the isWidgetEnabled setting and Overlay permission.
+        // We only broadcast the current service state for UI synchronization.
+        broadcastServiceState()
+    }
 
-        val isOverlayEnabled = Settings.canDrawOverlays(this)
-        val isAnyAppEnabled = SUPPORTED_PACKAGES.any { it !in cachedSettings.disabledApps }
+    private fun broadcastServiceState() {
+        val baseTime = currentSettings.calculateChronometerBase()
 
-        if (!isOverlayEnabled || !isAnyAppEnabled) {
-            serviceScope.launch {
-                detectionSettingsStore.setDetectionEnabled(false)
-            }
-            handler.post {
-                val reason = if (!isOverlayEnabled) "권한 해제" else "모든 앱 비활성화"
-                Toast.makeText(this, "보호 기능이 중단되었습니다 ($reason).", Toast.LENGTH_SHORT).show()
-            }
+        val intent = Intent(FloatingControlService.ACTION_UPDATE_STATE).apply {
+            putExtra(FloatingControlService.EXTRA_IS_ACTIVE, currentSettings.isDetectionEnabled)
+            putExtra(FloatingControlService.EXTRA_IS_PAUSED, isPaused)
+            putExtra(FloatingControlService.EXTRA_START_TIME, baseTime)
+            setPackage(packageName)
         }
+        sendBroadcast(intent)
     }
 }

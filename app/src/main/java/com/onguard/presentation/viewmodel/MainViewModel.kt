@@ -10,8 +10,12 @@ import com.onguard.presentation.ui.dashboard.DailyRiskStats
 import com.onguard.presentation.ui.dashboard.DashboardUiState
 import com.onguard.presentation.ui.dashboard.RiskDetail
 import com.onguard.presentation.ui.dashboard.SecurityStatus
+import android.view.WindowManager
+import android.content.Intent
+import com.onguard.service.FloatingControlService
 import dagger.hilt.android.lifecycle.HiltViewModel
 import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 @HiltViewModel
@@ -20,6 +24,63 @@ class MainViewModel @Inject constructor(
     private val repository: ScamAlertRepository,
     private val settingsStore: DetectionSettingsDataStore
 ) : AndroidViewModel(application) {
+
+    init {
+        observeSettings()
+    }
+
+    private fun observeSettings() {
+        viewModelScope.launch {
+            settingsStore.settingsFlow.collect { settings ->
+                checkPermissionsAndStopIfInvalid(settings)
+                manageWidgetService(settings)
+            }
+        }
+    }
+
+    private fun checkPermissionsAndStopIfInvalid(settings: com.onguard.data.local.DetectionSettings) {
+        val context = getApplication<Application>()
+        val isAccessibilityEnabled = isAccessibilityServiceEnabled()
+        val isOverlayEnabled = Settings.canDrawOverlays(context)
+        
+        if (!settings.canStartDetection(isAccessibilityEnabled, isOverlayEnabled)) {
+            if (settings.isDetectionEnabled) {
+                viewModelScope.launch {
+                    settingsStore.setDetectionEnabled(false)
+                }
+            }
+        }
+    }
+
+
+    private fun manageWidgetService(settings: com.onguard.data.local.DetectionSettings) {
+        val context = getApplication<Application>()
+        val isOverlayEnabled = Settings.canDrawOverlays(context)
+        
+        val currentTime = System.currentTimeMillis()
+        val isPaused = settings.pauseUntilTimestamp > 0 && currentTime < settings.pauseUntilTimestamp
+        
+        val baseTime = settings.calculateChronometerBase()
+
+        val serviceIntent = Intent(context, FloatingControlService::class.java).apply {
+            putExtra(FloatingControlService.EXTRA_START_TIME, baseTime)
+            putExtra(FloatingControlService.EXTRA_IS_ACTIVE, settings.isDetectionEnabled)
+            putExtra(FloatingControlService.EXTRA_IS_PAUSED, isPaused)
+        }
+
+        if (isOverlayEnabled && settings.isWidgetEnabled) {
+            context.startService(serviceIntent)
+        } else {
+            context.stopService(serviceIntent)
+            
+            // 만약 오버레이 권한이 없는데 설정이 켜져 있다면, 설정을 자동으로 끔 (동기화)
+            if (!isOverlayEnabled && settings.isWidgetEnabled) {
+                viewModelScope.launch {
+                    settingsStore.setWidgetEnabled(false)
+                }
+            }
+        }
+    }
 
     // 1초마다 틱을 발생시키는 Flow (실시간 타이머 및 카운트 증가 효과용)
     private val tickerFlow = flow {
@@ -62,12 +123,11 @@ class MainViewModel @Inject constructor(
         
         // 탐지 시간 및 시뮬레이션 수치 계산
         // 현재 활성화 상태라면 진행 중인 시간도 포함해야 함
-        val currentSessionDuration = if (settings.isActiveNow() && settings.detectionStartTime > 0) {
-            System.currentTimeMillis() - settings.detectionStartTime
-        } else {
-            0L
-        }
-        val totalTime = settings.totalAccumulatedTime + currentSessionDuration
+        val elapsedRealtime = android.os.SystemClock.elapsedRealtime()
+        val chronometerBase = settings.calculateChronometerBase(elapsedRealtime)
+        
+        // Widget과 동일하게 '현재 세션의 누적 시간'을 기준으로 표시하여 동기화
+        val totalTime = elapsedRealtime - chronometerBase
         val runningTimeSec = totalTime / 1000
 
         // [수정] 시뮬레이션 로직 제거 - 실제 데이터만 사용

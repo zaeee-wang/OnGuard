@@ -137,6 +137,21 @@ fun SettingsScreen(
             ) {
                 // 전역 탐지 설정
                 item {
+                    Text(
+                        text = "기본 설정",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                    Text(
+                        text = "실시간 탐지 기능을 관리합니다",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                item {
                     GlobalDetectionCard(
                         isEnabled = uiState.settings.isDetectionEnabled,
                         isPaused = !uiState.settings.isActiveNow() && uiState.settings.remainingPauseTime() > 0,
@@ -146,6 +161,30 @@ fun SettingsScreen(
                         onToggle = viewModel::setDetectionEnabled,
                         onPauseClick = { viewModel.showPauseDialog() },
                         onResumeClick = { viewModel.resumeDetection() }
+                    )
+                }
+
+                // 제어 위젯 설정
+                item {
+                    Text(
+                        text = "위젯 설정",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onBackground,
+                        modifier = Modifier.padding(top = 16.dp)
+                    )
+                    Text(
+                        text = "화면 위 위젯 기능을 관리합니다",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+
+                item {
+                    WidgetSettingsCard(
+                        isEnabled = uiState.settings.isWidgetEnabled,
+                        isOverlayEnabled = uiState.isOverlayEnabled,
+                        onToggle = viewModel::setWidgetEnabled
                     )
                 }
 
@@ -442,6 +481,69 @@ fun GlobalDetectionCard(
             }
 
 
+        }
+    }
+}
+
+@Composable
+fun WidgetSettingsCard(
+    isEnabled: Boolean,
+    isOverlayEnabled: Boolean,
+    onToggle: (Boolean) -> Unit
+) {
+    Card(
+        modifier = Modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.cardColors(
+            containerColor = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.5f)
+        )
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically, modifier = Modifier.weight(1f)) {
+                Box(
+                    modifier = Modifier
+                        .size(48.dp)
+                        .clip(CircleShape)
+                        .background(
+                            if (isEnabled && isOverlayEnabled) Color(0xFF143D95).copy(alpha = 0.1f)
+                            else Color(0xFF5E0B0B).copy(alpha = 0.1f)
+                        ),
+                    contentAlignment = Alignment.Center
+                ) {
+                    androidx.compose.foundation.Image(
+                    painter = painterResource(id = if (isEnabled && isOverlayEnabled) 
+                        R.drawable.ic_widget_blue 
+                    else 
+                        R.drawable.ic_widget_red),
+                    contentDescription = null,
+                    modifier = Modifier.size(24.dp)
+                )
+                }
+                Spacer(modifier = Modifier.width(16.dp))
+                Column {
+                    Text(
+                        text = "제어 위젯",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.Bold,
+                        color = MaterialTheme.colorScheme.onSurface
+                    )
+                    Text(
+                        text = if (!isOverlayEnabled) "화면 위에 표시 권한 필요" else if (isEnabled) "위젯이 활성화됨" else "위젯이 비활성화됨",
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+            ModernSwitch(
+                checked = isEnabled && isOverlayEnabled,
+                onCheckedChange = { if (isOverlayEnabled) onToggle(it) }
+            )
         }
     }
 }
